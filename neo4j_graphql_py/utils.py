@@ -1,17 +1,16 @@
-import graphql
 from typing import Any
-from graphql import GraphQLResolveInfo
+from graphql import GraphQLResolveInfo, GraphQLScalarType, parse, build_ast_schema
 
 
 def make_executable_schema(schema_definition, resolvers):
-    ast = graphql.parse(schema_definition)
-    schema = graphql.build_ast_schema(ast)
+    ast = parse(schema_definition)
+    schema = build_ast_schema(ast)
 
     for type_name in resolvers:
         field_type = schema.get_type(type_name)
 
         for field_name in resolvers[type_name]:
-            if field_type is graphql.GraphQLScalarType:
+            if field_type is GraphQLScalarType:
                 field_type.fields[field_name].resolve = resolvers[type_name][field_name]
                 continue
 
