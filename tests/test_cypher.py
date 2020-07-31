@@ -1,7 +1,6 @@
 import unittest
 from graphql import graphql_sync
-from utils import make_executable_schema
-from neo4j_graphql_py import cypher_query
+from neo4j_graphql_py import cypher_query, make_executable_schema
 
 
 class Test(unittest.TestCase):
@@ -24,6 +23,8 @@ class Test(unittest.TestCase):
             actors(first: Int = 3, offset: Int = 0): [Actor] @relation(name: "ACTED_IN", direction:"IN")
             avgStars: Float
             filmedIn: State @relation(name: "FILMED_IN", direction:"OUT")
+            scaleRating(scale: Int = 3): Float @cypher(statement: "WITH $this AS this RETURN $scale * this.imdbRating")
+            scaleRatingFloat(scale: Float = 1.5): Float @cypher(statement: "WITH $this AS this RETURN $scale * this.imdbRating")
         }
         type State {
             name: String
@@ -108,12 +109,11 @@ class Test(unittest.TestCase):
             }
         }
         '''
-        expected_cypher_query = ('MATCH (movie:Movie {title: "River Runs Through It, A"}) '
-                                 'RETURN movie { .title ,'
+        expected_cypher_query = ('MATCH (movie:Movie {title: "River Runs Through It, A"}) RETURN movie { .title ,'
                                  'actors: [(movie)<-[:ACTED_IN]-(movie_actors:Actor) | movie_actors { .name }] ,'
                                  'similar: [ x IN apoc.cypher.runFirstColumn("WITH {this} AS this '
-                                 'MATCH (this)--(:Genre)--(o:Movie) '
-                                 'RETURN o", {this: movie}, true) | x { .title }][..3] } AS movie SKIP 0')
+                                 'MATCH (this)--(:Genre)--(o:Movie) RETURN o", {this: movie, first: 3, offset: 0}, '
+                                 'true) | x { .title }][..3] } AS movie SKIP 0')
         self.base_test(graphql_query, expected_cypher_query)
 
     def test_handle_query_with_name_not_aligning_to_type(self):
@@ -180,8 +180,7 @@ class Test(unittest.TestCase):
             }
         }
         '''
-        expected_cypher_query = ('MATCH (movie:Movie {movieId: "3100"}) '
-                                 'RETURN movie { .title ,'
+        expected_cypher_query = ('MATCH (movie:Movie {movieId: "3100"}) RETURN movie { .title ,'
                                  'actors: [(movie)<-[:ACTED_IN]-(movie_actors:Actor) | movie_actors { .name }] ,'
                                  'filmedIn: head([(movie)-[:FILMED_IN]->(movie_filmedIn:State) | '
                                  'movie_filmedIn { .name }]) } AS movie SKIP 0')
@@ -222,7 +221,7 @@ class Test(unittest.TestCase):
                                  'movie_actors_movies_actors_movies { .title , .year ,'
                                  'similar: [ x IN apoc.cypher.runFirstColumn("WITH {this} AS this '
                                  'MATCH (this)--(:Genre)--(o:Movie) '
-                                 'RETURN o", {this: movie_actors_movies_actors_movies}, true) | '
+                                 'RETURN o", {this: movie_actors_movies_actors_movies, first: 3, offset: 0}, true) | '
                                  'x { .title , .year }][..3] }] }] }] }] } AS movie SKIP 0')
         self.base_test(graphql_query, expected_cypher_query)
 
@@ -264,6 +263,49 @@ class Test(unittest.TestCase):
         '''
         expected_cypher_query = ('MATCH (movie:Movie {title: "River Runs Through It, A"}) '
                                  'RETURN movie { .title , .year } AS movie SKIP 0')
+        self.base_test(graphql_query, expected_cypher_query)
+
+    def test_pass_cypher_directive_default_params_to_sub_query(self):
+        graphql_query = '''
+        {
+            Movie(title: "River Runs Through It, A") {
+                scaleRating
+            }
+        }
+        '''
+        expected_cypher_query = ('MATCH (movie:Movie {title: "River Runs Through It, A"}) '
+                                 'RETURN movie {scaleRating: apoc.cypher.runFirstColumn("WITH $this AS this '
+                                 'RETURN $scale * this.imdbRating", {this: movie, scale: 3}, false)} AS movie SKIP 0')
+        self.base_test(graphql_query, expected_cypher_query)
+
+    def test_pass_cypher_directive_params_to_sub_query(self):
+        graphql_query = '''
+        {
+            Movie(title: "River Runs Through It, A") {
+                scaleRating(scale: 10)
+            }
+        }
+        '''
+        expected_cypher_query = ('MATCH (movie:Movie {title: "River Runs Through It, A"}) '
+                                 'RETURN movie {scaleRating: apoc.cypher.runFirstColumn("WITH $this AS this '
+                                 'RETURN $scale * this.imdbRating", {this: movie, scale: 10}, false)} AS movie SKIP 0')
+        self.base_test(graphql_query, expected_cypher_query)
+
+    def test_handle_cypher_directive_without_any_params(self):
+        graphql_query = '''
+        {
+            Movie(title: "River Runs Through It, A") {
+                mostSimilar {
+                    title
+                    year
+                }
+            }
+        }
+        '''
+        expected_cypher_query = (
+            'MATCH (movie:Movie {title: "River Runs Through It, A"}) RETURN movie {mostSimilar: '
+            'head([ x IN apoc.cypher.runFirstColumn("WITH {this} AS this RETURN this", '
+            '{this: movie}, true) | x { .title , .year }]) } AS movie SKIP 0')
         self.base_test(graphql_query, expected_cypher_query)
 
 

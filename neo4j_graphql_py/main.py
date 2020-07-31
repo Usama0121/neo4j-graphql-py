@@ -2,6 +2,7 @@ import re
 import json
 import logging
 import pydash as _
+from .utils import cypher_directive_args
 
 RETURN_TYPE_ENUM = {
     'OBJECT': 0,
@@ -53,7 +54,7 @@ def cypher_query(context, resolve_info, **kwargs):
     selections = filtered_field_nodes[0].selection_set.selections
 
     # FIXME: support IN for multiple values -> WHERE
-    arg_string = re.sub(r"\"([^(\")\"]+)\":", "\\1:", json.dumps(kwargs))
+    arg_string = re.sub(r"\"([^(\")]+)\":", "\\1:", json.dumps(kwargs))
 
     query = f'MATCH ({variable}:{field_type} {arg_string})'
     query += f' RETURN {variable} {{' + build_cypher_selection('', selections, variable, schema_type, resolve_info)
@@ -93,7 +94,8 @@ def build_cypher_selection(initial, selections, variable, schema_type, resolve_i
         if field_is_scalar:
             return build_cypher_selection((initial +
                                            f'{field_name}: apoc.cypher.runFirstColumn("{statement}", '
-                                           f'{{this: {variable}}}, false){"," if len(tail_selections) > 0 else ""}'),
+                                           f'{cypher_directive_args(variable, head_selection, schema_type)}, false)'
+                                           f'{"," if len(tail_selections) > 0 else ""}'),
                                           tail_selections, variable, schema_type, resolve_info)
         else:
             # similar: [ x IN apoc.cypher.runFirstColumn("WITH {this} AS this MATCH (this)--(:Genre)--(o:Movie)
@@ -107,7 +109,7 @@ def build_cypher_selection(initial, selections, variable, schema_type, resolve_i
                 (initial +
                  f'{field_name}: {"" if field_is_list else "head("}'
                  f'[ x IN apoc.cypher.runFirstColumn("{statement}", '
-                 f'{{this: {variable}}}, true) | x '
+                 f'{cypher_directive_args(variable, head_selection, schema_type)}, true) | x '
                  f'{{{build_cypher_selection("", head_selection.selection_set.selections, nested_variable, inner, resolve_info)}}}]'
                  f'{"" if field_is_list else ")"}{skip_limit} '
                  f'{"," if len(tail_selections) > 0 else ""}'),

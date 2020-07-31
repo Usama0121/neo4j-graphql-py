@@ -1,5 +1,10 @@
+import re
+import json
+import logging
 from typing import Any
 from graphql import GraphQLResolveInfo, GraphQLScalarType, parse, build_ast_schema
+
+logger = logging.getLogger('neo4j_graphql_py')
 
 
 def make_executable_schema(schema_definition, resolvers):
@@ -37,3 +42,27 @@ def default_resolver(source: Any, info: GraphQLResolveInfo, **args: Any) -> Any:
     if callable(value):
         return value(info, **args)
     return value
+
+
+def parse_args(args):
+    if args is None or len(args) == 0:
+        return {}
+
+    return {arg.name.value: (int(arg.value.value) if arg.value.kind == 'int_value'
+                             else float(arg.value.value) if arg.value.kind == 'float_value' else arg.value.value)
+            for arg in args}
+
+
+def get_default_arguments(field_name, schema_type):
+    args = schema_type.fields[field_name].args
+    return {arg_name: arg.default_value for arg_name, arg in args.items()}
+
+
+def cypher_directive_args(variable, head_selection, schema_type):
+    default_args = get_default_arguments(head_selection.name.value, schema_type)
+    schema_args = {}
+    query_args = parse_args(head_selection.arguments)
+    default_args.update(query_args)
+    logger.info(f'Directive Arguments {default_args}')
+    args = re.sub(r"\"([^(\")]+)\":", "\\1:", json.dumps(default_args))
+    return f'{{this: {variable}{args[1:]}' if args == "{}" else f'{{this: {variable}, {args[1:]}'
