@@ -114,8 +114,8 @@ def build_cypher_selection(initial, selections, variable, schema_type, resolve_i
             return build_cypher_selection(
                 (initial +
                  f'{field_name}: {"" if field_is_list else "head("}'
-                 f'[ x IN apoc.cypher.runFirstColumn("{statement}", '
-                 f'{cypher_directive_args(variable, head_selection, schema_type)}, true) | x '
+                 f'[ {nested_variable} IN apoc.cypher.runFirstColumn("{statement}", '
+                 f'{cypher_directive_args(variable, head_selection, schema_type)}, true) | {nested_variable} '
                  f'{{{build_cypher_selection("", head_selection.selection_set.selections, nested_variable, inner, resolve_info)}}}]'
                  f'{"" if field_is_list else ")"}{skip_limit} '
                  f'{"," if len(tail_selections) > 0 else ""}'),
@@ -137,12 +137,17 @@ def build_cypher_selection(initial, selections, variable, schema_type, resolve_i
 
         return_type = RETURN_TYPE_ENUM['ARRAY'] if str(field_type).startswith("[") else RETURN_TYPE_ENUM['OBJECT']
 
+        subquery_args = {}
+        if len(head_selection.arguments) > 0:
+            subquery_args = {arg.name.value: arg.value.value for arg in head_selection.arguments}
+        subquery_arg_string = re.sub(r"\"([^(\")]+)\":", "\\1:", json.dumps(subquery_args))
+
         return build_cypher_selection(
             (initial +
              f"{field_name}: {'head(' if return_type == RETURN_TYPE_ENUM['OBJECT'] else ''}"
              f"[({variable}){'<' if rel_direction == 'in' or rel_direction == 'IN' else ''}"
              f"-[:{rel_type}]-{'>' if rel_direction == 'out' or rel_direction == 'OUT' else ''}"
-             f"({nested_variable}:{inner.name}) | {nested_variable} "
+             f"({nested_variable}:{inner.name} {subquery_arg_string}) | {nested_variable} "
              f"{{{build_cypher_selection('', head_selection.selection_set.selections, nested_variable, inner, resolve_info)}}}]"
              f"{')' if return_type == RETURN_TYPE_ENUM['OBJECT'] else ''}{skip_limit} "
              f"{',' if len(tail_selections) > 0 else ''}"),

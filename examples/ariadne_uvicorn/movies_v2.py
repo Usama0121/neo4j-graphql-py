@@ -27,6 +27,7 @@ type Movie {
 
 type Genre {
   name: String
+  highestRatedMovie: Movie @cypher(statement: "MATCH (m:Movie)-[:IN_GENRE]->(this) RETURN m ORDER BY m.imdbRating DESC LIMIT 1")
 }
 
 type State {
@@ -55,6 +56,7 @@ type Query {
   MoviesByYear(year: Int): [Movie]
   AllMovies: [Movie]
   MovieById(movieId: ID!): Movie
+  GenresBySubstring(substring: String): [Genre] @cypher(statement: "MATCH (g:Genre) WHERE toLower(g.name) CONTAINS toLower($substring) RETURN g")
 }
 '''
 query = QueryType()
@@ -64,6 +66,7 @@ query = QueryType()
 @query.field('MoviesByYear')
 @query.field('AllMovies')
 @query.field('MovieById')
+@query.field('GenresBySubstring')
 def resolve(obj, info, **kwargs):
     return neo4j_graphql(obj, info.context, info, **kwargs)
 
