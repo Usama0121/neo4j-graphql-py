@@ -56,11 +56,14 @@ def cypher_query(context, resolve_info, **kwargs):
     # FIXME: how to handle multiple field_node matches
 
     selections = filtered_field_nodes[0].selection_set.selections
+    where_predicate = ''
+    if '_id' in kwargs:
+        where_predicate = f' WHERE ID({variable})={kwargs.pop("_id")}'
 
     # FIXME: support IN for multiple values -> WHERE
     arg_string = re.sub(r"\"([^(\")]+)\":", "\\1:", json.dumps(kwargs))
 
-    query = f'MATCH ({variable}:{field_type} {arg_string})'
+    query = f'MATCH ({variable}:{field_type} {arg_string}){where_predicate}'
     query += f' RETURN {variable} {{' + build_cypher_selection('', selections, variable, schema_type, resolve_info)
 
     query += f'}} AS {variable}'
@@ -91,11 +94,10 @@ def build_cypher_selection(initial, selections, variable, schema_type, resolve_i
 
     if field_has_cypher_directive:
 
-        field_is_scalar = type(field_type).__name__ == "GraphQLScalarType"  # FIXME: DRY
         statement = _.find(_.find(schema_type.fields[field_name].ast_node.directives,
                                   lambda directive: directive.name.value == 'cypher').arguments,
                            lambda argument: argument.name.value == 'statement').value.value
-        if field_is_scalar:
+        if type(inner).__name__ == "GraphQLScalarType":
             return build_cypher_selection((initial +
                                            f'{field_name}: apoc.cypher.runFirstColumn("{statement}", '
                                            f'{cypher_directive_args(variable, head_selection, schema_type)}, false)'

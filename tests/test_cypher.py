@@ -43,9 +43,10 @@ class Test(unittest.TestCase):
             name: String
         }
         type Query {
-            Movie(id: ID, title: String, year: Int, plot: String, poster: String, imdbRating: Float, first: Int, offset: Int): [Movie]
+            Movie(_id: Int, id: ID, title: String, year: Int, plot: String, poster: String, imdbRating: Float, first: Int, offset: Int): [Movie]
             MoviesByYear(year: Int): [Movie]
             MovieById(movieId: ID!): Movie
+            MovieBy_Id(_id: Int): Movie
         }
         '''
 
@@ -58,6 +59,7 @@ class Test(unittest.TestCase):
                 'Movie': resolve_any,
                 'MoviesByYear': resolve_any,
                 'MovieById': resolve_any,
+                'MovieBy_Id': resolve_any,
             }
         }
 
@@ -68,7 +70,9 @@ class Test(unittest.TestCase):
 
     def base_test(self, graphql_query, expected_cypher_query):
         results = self._test_runner(graphql_query, expected_cypher_query)
-        self.assertIsNone(results.errors)
+        if results.errors is not None:
+            raise results.errors[0].original_error.original_error
+        # self.assertIsNone(results.errors)
 
     def test_simple_cypher_query(self):
         graphql_query = '''
@@ -306,6 +310,63 @@ class Test(unittest.TestCase):
             'MATCH (movie:Movie {title: "River Runs Through It, A"}) RETURN movie {mostSimilar: '
             'head([ x IN apoc.cypher.runFirstColumn("WITH {this} AS this RETURN this", '
             '{this: movie}, true) | x { .title , .year }]) } AS movie SKIP 0')
+        self.base_test(graphql_query, expected_cypher_query)
+
+    def test_query_by_internal_neo4j_id(self):
+        graphql_query = '''
+        {
+            Movie(_id: 0) {
+                title
+                year
+            }
+        }
+        '''
+        expected_cypher_query = ('MATCH (movie:Movie {}) WHERE ID(movie)=0 '
+                                 'RETURN movie { .title , .year } AS movie SKIP 0')
+        self.base_test(graphql_query, expected_cypher_query)
+
+    # test('Query for Neo4js internal _id', t=> {
+    #   const graphQLQuery = ``,
+    #     expectedCypherQuery = ``;
+    #   cypherTestRunner(t, graphQLQuery, {}, expectedCypherQuery);
+    # });
+    def test_query_by_internal_neo4j_id_and_other_params_before_id(self):
+        graphql_query = '''
+        {
+            Movie(title: "River Runs Through It, A", _id: 0) {
+                title
+                year
+            }
+        }
+        '''
+        expected_cypher_query = ('MATCH (movie:Movie {title: "River Runs Through It, A"}) WHERE ID(movie)=0 '
+                                 'RETURN movie { .title , .year } AS movie SKIP 0')
+        self.base_test(graphql_query, expected_cypher_query)
+
+    def test_query_by_internal_neo4j_id_and_other_params_after_id(self):
+        graphql_query = '''
+        {
+            Movie(_id: 0, year: 2010) {
+                title
+                year
+            }
+        }
+        '''
+        expected_cypher_query = ('MATCH (movie:Movie {year: 2010}) WHERE ID(movie)=0 '
+                                 'RETURN movie { .title , .year } AS movie SKIP 0')
+        self.base_test(graphql_query, expected_cypher_query)
+
+    def test_query_by_internal_neo4j_id_by_dedicated_query_MovieBy_Id(self):
+        graphql_query = '''
+        {
+            MovieBy_Id(_id: 0) {
+                title
+                year
+            }
+        }
+        '''
+        expected_cypher_query = ('MATCH (movie:Movie {}) WHERE ID(movie)=0 '
+                                 'RETURN movie { .title , .year } AS movie SKIP 0')
         self.base_test(graphql_query, expected_cypher_query)
 
 
