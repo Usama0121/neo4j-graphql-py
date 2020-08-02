@@ -15,7 +15,7 @@ URL = 'https://github.com/Usama0121/neo4j-graphql-py'
 EMAIL = 'aslam0121@gmail.com'
 AUTHOR = 'Muhammad Usama'
 REQUIRES_PYTHON = '>=3.6.0'
-VERSION = '0.1.1'
+VERSION = '0.1.2'
 
 # What packages are required for this module to be executed?
 with open('requirements.txt', 'r') as fin:
