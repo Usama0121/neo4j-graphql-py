@@ -26,10 +26,14 @@ def neo4j_graphql(obj, context, resolve_info, **kwargs):
                    else RETURN_TYPE_ENUM['OBJECT'])
 
     def fun(result):
+        result = [record.get(variable) for record in result.data()]
         if return_type == RETURN_TYPE_ENUM['ARRAY']:
-            return [record.get(variable) for record in result.data()]
+            return result
         elif return_type == RETURN_TYPE_ENUM['OBJECT']:
-            return result.records[0].get(variable)
+            if len(result) > 0:
+                return result[0]
+            else:
+                return None
 
     with context.get('driver').session() as session:
         data = session.run(query, **kwargs)
