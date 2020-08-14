@@ -1,6 +1,7 @@
 directive @cypher(statement: String!) on FIELD_DEFINITION
 directive @relation(name:String!, direction:String!) on FIELD_DEFINITION
 type Movie {
+    _id: ID
     title: String
     released: Int
     tagline: String
@@ -10,6 +11,7 @@ type Movie {
 }
 
 type Person {
+    _id: ID
     name: String
     born: Int
 }

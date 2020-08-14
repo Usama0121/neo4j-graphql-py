@@ -13,42 +13,24 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
-from typing import cast
 from .schema import schema
 from django.urls import path
 from neo4j import GraphDatabase
-from django.conf import settings
 from django.contrib import admin
-from graphql import GraphQLSchema
-from django.http import HttpRequest
-from ariadne.types import GraphQLResult
-from ariadne import format_error, graphql_sync
-from ariadne.contrib.django.views import GraphQLView as GQLView
+from ariadne.contrib.django.views import GraphQLView
 
-driver = GraphDatabase.driver("bolt://localhost:7687", auth=("neo4j", "neo4j123"))
+driver = None
 
 
-class GraphQLView(GQLView):
-    def execute_query(self, request: HttpRequest, data: dict) -> GraphQLResult:
-        if callable(self.context_value):
-            context_value = {'driver': driver, 'request': self.context_value(request)}  # pylint: disable=not-callable
-        else:
-            context_value = {'driver': driver, 'request': self.context_value or request}
+def context(request):
+    global driver
+    if driver is None:
+        driver = GraphDatabase.driver("bolt://localhost:7687", auth=("neo4j", "neo4j123"))
 
-        return graphql_sync(
-            cast(GraphQLSchema, self.schema),
-            data,
-            context_value=context_value,
-            root_value=self.root_value,
-            debug=settings.DEBUG,
-            logger=self.logger,
-            validation_rules=self.validation_rules,
-            error_formatter=self.error_formatter or format_error,
-            middleware=self.middleware,
-        )
+    return {'driver': driver, 'request': request}
 
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('graphql/', GraphQLView.as_view(schema=schema), name='graphql'),
+    path('graphql/', GraphQLView.as_view(schema=schema, context_value=context), name='graphql'),
 ]

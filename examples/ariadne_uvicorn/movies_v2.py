@@ -8,6 +8,7 @@ typeDefs = '''
 directive @cypher(statement: String!) on FIELD_DEFINITION
 directive @relation(name:String!, direction:String!) on FIELD_DEFINITION
 type Movie {
+  _id: ID
   movieId: ID!
   title: String
   year: Int
@@ -26,7 +27,9 @@ type Movie {
 }
 
 type Genre {
+  _id: ID!
   name: String
+  movies(first: Int = 3, offset: Int = 0): [Movie] @relation(name: "IN_GENRE", direction: "IN")
   highestRatedMovie: Movie @cypher(statement: "MATCH (m:Movie)-[:IN_GENRE]->(this) RETURN m ORDER BY m.imdbRating DESC LIMIT 1")
 }
 
@@ -50,6 +53,15 @@ type User implements Person {
   name: String
 }
 
+enum BookGenre {
+  Mystery,
+  Science,
+  Math
+}
+
+type Book {
+  genre: BookGenre
+}
 
 type Query {
   Movie(id: ID, title: String, year: Int, plot: String, poster: String, imdbRating: Float, first: Int, offset: Int): [Movie]
@@ -57,6 +69,7 @@ type Query {
   AllMovies: [Movie]
   MovieById(movieId: ID!): Movie
   GenresBySubstring(substring: String): [Genre] @cypher(statement: "MATCH (g:Genre) WHERE toLower(g.name) CONTAINS toLower($substring) RETURN g")
+  Books: [Book]
 }
 '''
 query = QueryType()
@@ -67,8 +80,9 @@ query = QueryType()
 @query.field('AllMovies')
 @query.field('MovieById')
 @query.field('GenresBySubstring')
+@query.field('Books')
 def resolve(obj, info, **kwargs):
-    return neo4j_graphql(obj, info.context, info, **kwargs)
+    return neo4j_graphql(obj, info.context, info, True, **kwargs)
 
 
 schema = make_executable_schema(typeDefs, query)
@@ -84,6 +98,6 @@ def context(request):
     return {'driver': driver, 'request': request}
 
 
-rootValue = {}
-app = GraphQL(schema=schema, root_value=rootValue, context_value=context, debug=True)
+root_value = {}
+app = GraphQL(schema=schema, root_value=root_value, context_value=context, debug=True)
 uvicorn.run(app)

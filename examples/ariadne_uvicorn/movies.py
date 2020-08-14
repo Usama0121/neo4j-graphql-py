@@ -7,6 +7,7 @@ typeDefs = '''
 directive @cypher(statement: String!) on FIELD_DEFINITION
 directive @relation(name:String!, direction:String!) on FIELD_DEFINITION
 type Movie {
+  _id: ID
   title: String
   released: Int
   tagline: String
@@ -16,6 +17,7 @@ type Movie {
 }
 
 type Person {
+    _id: ID
     name: String
     born: Int
 }
@@ -48,6 +50,6 @@ def context(request):
     return {'driver': driver, 'request': request}
 
 
-rootValue = {}
-app = GraphQL(schema=schema, root_value=rootValue, context_value=context, debug=True)
+root_value = {}
+app = GraphQL(schema=schema, root_value=root_value, context_value=context, debug=True)
 uvicorn.run(app)

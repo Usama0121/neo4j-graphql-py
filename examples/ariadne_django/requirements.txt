@@ -1,3 +1,4 @@
-neo4j-graphql-py==0.1.1
+neo4j-graphql-py==0.1.3
 Django==3.0.8
-ariadne==0.11.0
+ariadne==0.12.0
+django-cors-headers==3.4.0
