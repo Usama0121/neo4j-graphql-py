@@ -435,5 +435,6 @@ class Test(unittest.TestCase):
                                  'AS movie SKIP 0')
         self.base_test(graphql_query, expected_cypher_query)
 
+
 if __name__ == '__main__':
     unittest.main()

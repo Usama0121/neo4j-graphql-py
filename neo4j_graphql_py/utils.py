@@ -63,6 +63,5 @@ def cypher_directive_args(variable, head_selection, schema_type):
     schema_args = {}
     query_args = parse_args(head_selection.arguments)
     default_args.update(query_args)
-    logger.info(f'Directive Arguments {default_args}')
     args = re.sub(r"\"([^(\")]+)\":", "\\1:", json.dumps(default_args))
     return f'{{this: {variable}{args[1:]}' if args == "{}" else f'{{this: {variable}, {args[1:]}'

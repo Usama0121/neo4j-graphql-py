@@ -1,13 +1,9 @@
 import re
 import json
 import logging
-import pydash as _
+from pydash import filter_, find
 from .utils import cypher_directive_args
 
-RETURN_TYPE_ENUM = {
-    'OBJECT': 0,
-    'ARRAY': 1
-}
 logger = logging.getLogger('neo4j_graphql_py')
 logger.setLevel(logging.DEBUG)
 ch = logging.StreamHandler()
@@ -16,152 +12,178 @@ ch.setFormatter(formatter)
 logger.addHandler(ch)
 
 
-def neo4j_graphql(obj, context, resolve_info, **kwargs):
-    field_type = str(inner_type(resolve_info.return_type))
-    variable = field_type[0].lower() + field_type[1:]
+async def neo4j_graphql(obj, context, resolve_info, debug=False, **kwargs):
     query = cypher_query(context, resolve_info, **kwargs)
-    logger.info(query)
-    return_type = (RETURN_TYPE_ENUM['ARRAY']
-                   if str(resolve_info.return_type).startswith("[")
-                   else RETURN_TYPE_ENUM['OBJECT'])
-
-    def fun(result):
-        result = [record.get(variable) for record in result.data()]
-        if return_type == RETURN_TYPE_ENUM['ARRAY']:
-            return result
-        elif return_type == RETURN_TYPE_ENUM['OBJECT']:
-            if len(result) > 0:
-                return result[0]
-            else:
-                return None
+    if debug:
+        logger.info(query)
 
     with context.get('driver').session() as session:
-        data = session.run(query, **kwargs)
-        data = fun(data)
+        data = await session.run(query, **kwargs)
+        data = extract_query_result(data, resolve_info.return_type)
         return data
 
 
-def cypher_query(context, resolve_info, **kwargs):
-    page_params = {
-        "first": None if kwargs.get('first') is None else str(kwargs.pop('first')),
-        "offset": '0' if kwargs.get('offset') is None else str(kwargs.pop('offset'))
-    }
+def cypher_query(context, resolve_info, first=-1, offset=0, _id=None, **kwargs):
+    types_ident = type_identifiers(resolve_info.return_type)
+    type_name = types_ident.get('type_name')
+    variable_name = types_ident.get('variable_name')
+    schema_type = resolve_info.schema.get_type(type_name)
 
-    field_type = str(inner_type(resolve_info.return_type))
-    variable = field_type[0].lower() + field_type[1:]
-    schema_type = resolve_info.schema.get_type(field_type)
-
-    filtered_field_nodes = _.filter_(resolve_info.field_nodes, lambda x: x.name.value == resolve_info.field_name)
+    filtered_field_nodes = filter_(resolve_info.field_nodes, lambda n: n.name.value == resolve_info.field_name)
 
     # FIXME: how to handle multiple field_node matches
 
     selections = filtered_field_nodes[0].selection_set.selections
-    where_predicate = ''
-    if '_id' in kwargs:
-        where_predicate = f' WHERE ID({variable})={kwargs.pop("_id")}'
 
     # FIXME: support IN for multiple values -> WHERE
     arg_string = re.sub(r"\"([^(\")]+)\":", "\\1:", json.dumps(kwargs))
 
-    query = f'MATCH ({variable}:{field_type} {arg_string}){where_predicate}'
-    query += f' RETURN {variable} {{' + build_cypher_selection('', selections, variable, schema_type, resolve_info)
+    id_where_predicate = f'WHERE ID({variable_name})={_id} ' if _id is not None else ''
+    outer_skip_limit = f'SKIP {offset}{" LIMIT " + str(first) if first > -1 else ""}'
 
-    query += f'}} AS {variable}'
-    query += (f' SKIP {page_params["offset"]}'
-              f'{" LIMIT " + page_params["first"] if page_params["first"] is not None else ""}')
+    query = f'MATCH ({variable_name}:{type_name} {arg_string}) {id_where_predicate}'
+    query += (f'RETURN {variable_name} '
+              f'{{{build_cypher_selection("", selections, variable_name, schema_type)}}}'
+              f' AS {variable_name} {outer_skip_limit}')
 
     return query
 
 
-def build_cypher_selection(initial, selections, variable, schema_type, resolve_info):
-    # FIXME: resolve_info not needed
-
+def build_cypher_selection(initial, selections, variable_name, schema_type):
     if len(selections) == 0:
         return initial
-    (head_selection, tail_selections) = selections[0], selections[1:]
+    head_selection, *tail_selections = selections
+
+    tail_params = {
+        'selections': tail_selections,
+        'variable_name': variable_name,
+        'schema_type': schema_type
+    }
 
     field_name = head_selection.name.value
     if not schema_type.fields.get(field_name):
+        # meta field type
         return build_cypher_selection(initial[1:initial.rfind(',')] if len(tail_selections) == 0 else initial,
-                                      tail_selections, variable, schema_type, resolve_info)
+                                      **tail_params)
+    comma_if_tail = ',' if len(tail_selections) > 0 else ''
 
     field_type = schema_type.fields[field_name].type
 
-    inner = inner_type(field_type)  # for target "field_type" aka label
+    inner_schema_type = inner_type(field_type)  # for target "field_type" aka label
 
-    field_has_cypher_directive = len([directive for directive in schema_type.fields[field_name].ast_node.directives if
-                                      directive.name.value == 'cypher']) > 0
+    custom_cypher = cypher_directive(schema_type, field_name).get('statement')
 
-    if field_has_cypher_directive:
+    if is_graphql_scalar_type(inner_schema_type):
+        if custom_cypher:
+            return build_cypher_selection((f'{initial}{field_name}: apoc.cypher.runFirstColumn("{custom_cypher}", '
+                                           f'{cypher_directive_args(variable_name, head_selection, schema_type)}, false)'
+                                           f'{comma_if_tail}'), **tail_params)
 
-        statement = _.find(_.find(schema_type.fields[field_name].ast_node.directives,
-                                  lambda directive: directive.name.value == 'cypher').arguments,
-                           lambda argument: argument.name.value == 'statement').value.value
-        if type(inner).__name__ == "GraphQLScalarType":
-            return build_cypher_selection((initial +
-                                           f'{field_name}: apoc.cypher.runFirstColumn("{statement}", '
-                                           f'{cypher_directive_args(variable, head_selection, schema_type)}, false)'
-                                           f'{"," if len(tail_selections) > 0 else ""}'),
-                                          tail_selections, variable, schema_type, resolve_info)
-        else:
-            # similar: [ x IN apoc.cypher.runFirstColumn("WITH {this} AS this MATCH (this)--(:Genre)--(o:Movie)
-            # RETURN o", {this: movie}, true) |x {.title}][1..2])
+        # graphql scalar type, no custom cypher statement
+        return build_cypher_selection(f'{initial} .{field_name} {comma_if_tail}', **tail_params)
 
-            nested_variable = variable + '_' + field_name
-            skip_limit = compute_skip_limit(head_selection)
-            field_is_list = not not getattr(field_type, 'of_type', None)
+    # We have a graphql object type
+    nested_variable = variable_name + '_' + field_name
+    skip_limit = compute_skip_limit(head_selection)
+    nested_params = {
+        'initial': '',
+        'selections': head_selection.selection_set.selections,
+        'variable_name': nested_variable,
+        'schema_type': inner_schema_type
+    }
+    if custom_cypher:
+        # similar: [ x IN apoc.cypher.runFirstColumn("WITH {this} AS this MATCH (this)--(:Genre)--(o:Movie)
+        # RETURN o", {this: movie}, true) |x {.title}][1..2])
 
-            return build_cypher_selection(
-                (initial +
-                 f'{field_name}: {"" if field_is_list else "head("}'
-                 f'[ {nested_variable} IN apoc.cypher.runFirstColumn("{statement}", '
-                 f'{cypher_directive_args(variable, head_selection, schema_type)}, true) | {nested_variable} '
-                 f'{{{build_cypher_selection("", head_selection.selection_set.selections, nested_variable, inner, resolve_info)}}}]'
-                 f'{"" if field_is_list else ")"}{skip_limit} '
-                 f'{"," if len(tail_selections) > 0 else ""}'),
-                tail_selections, variable, schema_type, resolve_info)
-
-    elif type(inner_type(field_type)).__name__ == "GraphQLScalarType":
-        return build_cypher_selection(initial + f' .{field_name} {"," if len(tail_selections) > 0 else ""}',
-                                      tail_selections, variable, schema_type, resolve_info)
-    else:
-        # field is an obj
-        nested_variable = variable + '_' + field_name
-        skip_limit = compute_skip_limit(head_selection)
-        relation_directive = _.find(schema_type.fields[field_name].ast_node.directives,
-                                    lambda directive: directive.name.value == 'relation')
-
-        rel_type = _.find(relation_directive.arguments, lambda argument: argument.name.value == 'name').value.value
-        rel_direction = _.find(relation_directive.arguments,
-                               lambda argument: argument.name.value == 'direction').value.value
-
-        return_type = RETURN_TYPE_ENUM['ARRAY'] if str(field_type).startswith("[") else RETURN_TYPE_ENUM['OBJECT']
-
-        subquery_args = {}
-        if len(head_selection.arguments) > 0:
-            subquery_args = {arg.name.value: arg.value.value for arg in head_selection.arguments if
-                             arg.name.value not in ['first', 'offset']}
-        subquery_arg_string = re.sub(r"\"([^(\")]+)\":", "\\1:", json.dumps(subquery_args))
+        field_is_list = not not getattr(field_type, 'of_type', None)
 
         return build_cypher_selection(
-            (initial +
-             f"{field_name}: {'head(' if return_type == RETURN_TYPE_ENUM['OBJECT'] else ''}"
-             f"[({variable}){'<' if rel_direction == 'in' or rel_direction == 'IN' else ''}"
-             f"-[:{rel_type}]-{'>' if rel_direction == 'out' or rel_direction == 'OUT' else ''}"
-             f"({nested_variable}:{inner.name} {subquery_arg_string}) | {nested_variable} "
-             f"{{{build_cypher_selection('', head_selection.selection_set.selections, nested_variable, inner, resolve_info)}}}]"
-             f"{')' if return_type == RETURN_TYPE_ENUM['OBJECT'] else ''}{skip_limit} "
-             f"{',' if len(tail_selections) > 0 else ''}"),
-            tail_selections, variable, schema_type, resolve_info)
+            (f'{initial}{field_name}: {"" if field_is_list else "head("}'
+             f'[ {nested_variable} IN apoc.cypher.runFirstColumn("{custom_cypher}", '
+             f'{cypher_directive_args(variable_name, head_selection, schema_type)}, true) | {nested_variable} '
+             f'{{{build_cypher_selection(**nested_params)}}}]'
+             f'{"" if field_is_list else ")"}{skip_limit} {comma_if_tail}'), **tail_params)
+
+    # graphql object type, no custom cypher
+
+    rel = relation_directive(schema_type, field_name)
+    rel_type = rel.get('name')
+    rel_direction = rel.get('direction')
+    subquery_args = inner_filter_params(head_selection)
+
+    return build_cypher_selection(
+        (f"{initial}{field_name}: {'head(' if not is_array_type(field_type) else ''}"
+         f"[({variable_name}){'<' if rel_direction in ['in', 'IN'] else ''}"
+         f"-[:{rel_type}]-{'>' if rel_direction in ['out', 'OUT'] else ''}"
+         f"({nested_variable}:{inner_schema_type.name} {subquery_args}) | {nested_variable} "
+         f"{{{build_cypher_selection(**nested_params)}}}]"
+         f"{')' if not is_array_type(field_type) else ''}{skip_limit} {comma_if_tail}"), **tail_params)
+
+
+def type_identifiers(return_type):
+    type_name = str(inner_type(return_type))
+    return {'variable_name': low_first_letter(type_name),
+            'type_name': type_name}
+
+
+def is_graphql_scalar_type(field_type):
+    return type(field_type).__name__ == 'GraphQLScalarType'
+
+
+def is_array_type(field_type):
+    return str(field_type).startswith('[')
+
+
+def low_first_letter(word):
+    return word[0].lower() + word[1:]
 
 
 def inner_type(field_type):
     return inner_type(field_type.of_type) if getattr(field_type, 'of_type', None) else field_type
 
 
+def directive_with_args(directive_name, *args):
+    def fun(schema_type, field_name):
+        def field_directive(schema_type, field_name, directive_name):
+            return find(schema_type.fields[field_name].ast_node.directives, lambda d: d.name.value == directive_name)
+
+        def directive_argument(directive, name):
+            return find(directive.arguments, lambda a: a.name.value == name).value.value
+
+        directive = field_directive(schema_type, field_name, directive_name)
+        ret = {}
+        if directive:
+            ret.update({key: directive_argument(directive, key) for key in args})
+        return ret
+
+    return fun
+
+
+cypher_directive = directive_with_args('cypher', 'statement')
+relation_directive = directive_with_args('relation', 'name', 'direction')
+
+
+def inner_filter_params(selections):
+    query_params = {}
+    if len(selections.arguments) > 0:
+        query_params = {arg.name.value: arg.value.value for arg in selections.arguments if
+                        arg.name.value not in ['first', 'offset']}
+    # FIXME: support IN for multiple values -> WHERE
+    query_params = re.sub(r"\"([^(\")]+)\":", "\\1:", json.dumps(query_params))
+
+    return query_params
+
+
 def argument_value(selection, name):
-    arg = _.find(selection.arguments, lambda argument: argument.name.value == name)
+    arg = find(selection.arguments, lambda argument: argument.name.value == name)
     return None if arg is None else arg.value.value
+
+
+def extract_query_result(records, return_type):
+    type_ident = type_identifiers(return_type)
+    variable_name = type_ident.get('variable_name')
+    result = [record.get(variable_name) for record in records.data()]
+    return result if is_array_type(return_type) else result[0] if len(result) > 0 else None
 
 
 def compute_skip_limit(selection):
