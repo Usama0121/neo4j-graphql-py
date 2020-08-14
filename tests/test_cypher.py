@@ -16,7 +16,7 @@ class Test(unittest.TestCase):
             plot: String
             poster: String
             imdbRating: Float
-            genres: [String]
+            genres: [Genre] @relation(name: "IN_GENRE", direction: "OUT")
             similar(first: Int = 3, offset: Int = 0): [Movie] @cypher(statement: "WITH {this} AS this MATCH (this)--(:Genre)--(o:Movie) RETURN o")
             mostSimilar: Movie @cypher(statement: "WITH {this} AS this RETURN this")
             degree: Int @cypher(statement: "WITH {this} AS this RETURN SIZE((this)--())")
@@ -26,6 +26,11 @@ class Test(unittest.TestCase):
             scaleRating(scale: Int = 3): Float @cypher(statement: "WITH $this AS this RETURN $scale * this.imdbRating")
             scaleRatingFloat(scale: Float = 1.5): Float @cypher(statement: "WITH $this AS this RETURN $scale * this.imdbRating")
             actorMovies: [Movie] @cypher(statement: "MATCH (this)-[:ACTED_IN*2]-(other:Movie) RETURN other")
+        }
+        type Genre {
+            name: String
+            movies(first: Int = 3, offset: Int = 0): [Movie] @relation(name: "IN_GENRE", direction: "IN")
+            highestRatedMovie: Movie @cypher(statement: "MATCH (m:Movie)-[:IN_GENRE]->(this) RETURN m ORDER BY m.imdbRating DESC LIMIT 1")
         }
         type State {
             name: String
@@ -48,6 +53,7 @@ class Test(unittest.TestCase):
             MoviesByYear(year: Int): [Movie]
             MovieById(movieId: ID!): Movie
             MovieBy_Id(_id: Int): Movie
+            GenresBySubstring(substring: String): [Genre] @cypher(statement: "MATCH (g:Genre) WHERE toLower(g.name) CONTAINS toLower($substring) RETURN g")
         }
         '''
 
@@ -61,6 +67,7 @@ class Test(unittest.TestCase):
                 'MoviesByYear': resolve_any,
                 'MovieById': resolve_any,
                 'MovieBy_Id': resolve_any,
+                'GenresBySubstring': resolve_any,
             }
         }
 
@@ -433,6 +440,23 @@ class Test(unittest.TestCase):
                                  'runFirstColumn("WITH {this} AS this MATCH (this)--(:Genre)--(o:Movie) RETURN o", '
                                  '{this: movie, first: 3, offset: 0}, true) | movie_similar { .title }][..3] } '
                                  'AS movie SKIP 0')
+        self.base_test(graphql_query, expected_cypher_query)
+
+    def test_handle_cypher_directive_on_query_type(self):
+        graphql_query = '''
+        {
+            GenresBySubstring(substring:"Action") {
+                name
+                movies(first: 3) {
+                    title
+                }
+            }
+        }
+        '''
+        expected_cypher_query = ('WITH apoc.cypher.runFirstColumn("MATCH (g:Genre) WHERE toLower(g.name) '
+                                 'CONTAINS toLower($substring) RETURN g", {substring: "Action"}, true) AS x '
+                                 'UNWIND x AS genre RETURN genre { .name ,movies: [(genre)<-[:IN_GENRE]-'
+                                 '(genre_movies:Movie {}) | genre_movies { .title }][..3] } AS genre SKIP 0')
         self.base_test(graphql_query, expected_cypher_query)
 
 

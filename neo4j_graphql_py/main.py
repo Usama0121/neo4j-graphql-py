@@ -41,10 +41,19 @@ def cypher_query(context, resolve_info, first=-1, offset=0, _id=None, **kwargs):
     id_where_predicate = f'WHERE ID({variable_name})={_id} ' if _id is not None else ''
     outer_skip_limit = f'SKIP {offset}{" LIMIT " + str(first) if first > -1 else ""}'
 
-    query = f'MATCH ({variable_name}:{type_name} {arg_string}) {id_where_predicate}'
-    query += (f'RETURN {variable_name} '
-              f'{{{build_cypher_selection("", selections, variable_name, schema_type)}}}'
-              f' AS {variable_name} {outer_skip_limit}')
+    cyp_dir = cypher_directive(resolve_info.schema.query_type, resolve_info.field_name)
+    if cyp_dir:
+        custom_cypher = cyp_dir.get('statement')
+        query = (f'WITH apoc.cypher.runFirstColumn("{custom_cypher}", {arg_string}, true) AS x '
+                 f'UNWIND x AS {variable_name} RETURN {variable_name} '
+                 f'{{{build_cypher_selection("", selections, variable_name, schema_type)}}} '
+                 f'AS {variable_name} {outer_skip_limit}')
+    else:
+        # No @cypher directive on QueryType
+        query = f'MATCH ({variable_name}:{type_name} {arg_string}) {id_where_predicate}'
+        query += (f'RETURN {variable_name} '
+                  f'{{{build_cypher_selection("", selections, variable_name, schema_type)}}}'
+                  f' AS {variable_name} {outer_skip_limit}')
 
     return query
 
