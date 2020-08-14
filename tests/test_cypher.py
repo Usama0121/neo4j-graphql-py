@@ -540,6 +540,49 @@ class Test(unittest.TestCase):
         expected_cypher_query = 'MATCH (book:Book {}) RETURN book { .genre } AS book SKIP 0'
         self.base_test(graphql_query, expected_cypher_query, params={'year': 2016, 'first': 3, 'scale': 5})
 
+    def test_handle_query_fragment(self):
+        graphql_query = '''
+        fragment myTitle on Movie {
+            title
+            actors {
+                name
+            }
+        }
+        query getMovie {
+            Movie(title: "River Runs Through It, A") {
+                ...myTitle
+                year
+            }
+        }
+        '''
+        expected_cypher_query = ('MATCH (movie:Movie {title: "River Runs Through It, A"}) RETURN movie { .title ,'
+                                 'actors: [(movie)<-[:ACTED_IN]-(movie_actors:Actor {}) | movie_actors { .name }] , .year '
+                                 '} AS movie SKIP 0')
+        self.base_test(graphql_query, expected_cypher_query)
+
+    def test_handle_multiple_query_fragment(self):
+        graphql_query = '''
+        fragment myTitle on Movie {
+            title
+        }
+        fragment myActors on Movie {
+            actors {
+                name
+            }
+        }
+        query getMovie {
+            Movie(title: "River Runs Through It, A") {
+                ...myTitle
+                ...myActors
+                year
+            }
+        }
+        '''
+        expected_cypher_query = ('MATCH (movie:Movie {title: "River Runs Through It, A"}) RETURN movie { .title ,'
+                                 'actors: [(movie)<-[:ACTED_IN]-(movie_actors:Actor {}) | movie_actors { .name }] , '
+                                 '.year } AS movie SKIP 0')
+        self.base_test(graphql_query, expected_cypher_query)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -1,7 +1,7 @@
 import re
 import json
 import logging
-from pydash import filter_, find
+from pydash import filter_, find, reduce_
 from .utils import cypher_directive_args
 
 logger = logging.getLogger('neo4j_graphql_py')
@@ -33,7 +33,7 @@ def cypher_query(context, resolve_info, first=-1, offset=0, _id=None, **kwargs):
 
     # FIXME: how to handle multiple field_node matches
 
-    selections = filtered_field_nodes[0].selection_set.selections
+    selections = extract_selections(filtered_field_nodes[0].selection_set.selections, resolve_info.fragments)
 
     # FIXME: support IN for multiple values -> WHERE
     arg_string = re.sub(r"\"([^(\")]+)\":", "\\1:", json.dumps(kwargs))
@@ -216,3 +216,12 @@ def compute_skip_limit(selection, variable_values):
     if first is None:
         return f'[{offset}..]'
     return f'[{offset}..{int(offset) + int(first)}]'
+
+
+def extract_selections(selections, fragments):
+    # extract any fragment selection sets into a single array of selections
+    return reduce_(selections,
+                   lambda acc, curr:
+                   [*acc, *fragments[curr.name.value].selection_set.selections] if curr.kind == 'fragment_spread'
+                   else [*acc, curr],
+                   [])
