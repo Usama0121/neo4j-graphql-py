@@ -5,7 +5,7 @@ from neo4j_graphql_py import cypher_query, make_executable_schema
 
 class Test(unittest.TestCase):
 
-    def _test_runner(self, graphql_query, expected_cypher_query):
+    def _test_runner(self, graphql_query, expected_cypher_query, params=None):
         test_movie_schema = '''
         directive @cypher(statement: String!) on FIELD_DEFINITION
         directive @relation(name:String!, direction:String!) on FIELD_DEFINITION
@@ -59,7 +59,7 @@ class Test(unittest.TestCase):
 
         def resolve_any(_, info, **kwargs):
             query = cypher_query(info.context, info, **kwargs)
-            self.assertEqual(first=query, second=expected_cypher_query)
+            self.assertEqual(first=expected_cypher_query, second=query)
 
         resolvers = {
             'Query': {
@@ -74,10 +74,10 @@ class Test(unittest.TestCase):
         schema = make_executable_schema(test_movie_schema, resolvers)
 
         # query the test schema with the test query, assertion is in the resolver
-        return graphql_sync(schema, graphql_query)
+        return graphql_sync(schema, graphql_query, variable_values=params)
 
-    def base_test(self, graphql_query, expected_cypher_query):
-        results = self._test_runner(graphql_query, expected_cypher_query)
+    def base_test(self, graphql_query, expected_cypher_query, params=None):
+        results = self._test_runner(graphql_query, expected_cypher_query, params)
         if results.errors is not None:
             raise results.errors[0].original_error.original_error
         # self.assertIsNone(results.errors)
@@ -458,6 +458,45 @@ class Test(unittest.TestCase):
                                  'UNWIND x AS genre RETURN genre { .name ,movies: [(genre)<-[:IN_GENRE]-'
                                  '(genre_movies:Movie {}) | genre_movies { .title }][..3] } AS genre SKIP 0')
         self.base_test(graphql_query, expected_cypher_query)
+
+    def test_handle_graphql_variables_in_nested_selection_first(self):
+        graphql_query = '''
+        query ($first: Int!,$year: Int!) {
+            Movie(year: $year) {
+                title
+                year
+                similar(first: $first) {
+                    title
+                }
+            }
+        }
+        '''
+        expected_cypher_query = ('MATCH (movie:Movie {year: 2016}) RETURN movie { .title , .year ,'
+                                 'similar: [ movie_similar IN apoc.cypher.runFirstColumn("WITH {this} AS this '
+                                 'MATCH (this)--(:Genre)--(o:Movie) RETURN o", {this: movie, first: 3, offset: 0}, '
+                                 'true) | movie_similar { .title }][..3] } AS movie SKIP 0')
+        self.base_test(graphql_query, expected_cypher_query, params={'year': 2016, 'first': 3})
+
+    def test_handle_graphql_variables_in_nested_selection_cypher(self):
+        graphql_query = '''
+        query ($year: Int = 2016, $first: Int = 2, $scale:Int) {
+            Movie(year: $year) {
+                title
+                year
+                similar(first: $first) {
+                    title
+                    scaleRating(scale:$scale) 
+                }
+            }
+        }
+        '''
+        expected_cypher_query = ('MATCH (movie:Movie {year: 2016}) RETURN movie { .title , .year ,'
+                                 'similar: [ movie_similar IN apoc.cypher.runFirstColumn("WITH {this} AS this '
+                                 'MATCH (this)--(:Genre)--(o:Movie) RETURN o", {this: movie, first: 3, offset: 0}, '
+                                 'true) | movie_similar { .title ,scaleRating: apoc.cypher.runFirstColumn("'
+                                 'WITH $this AS this RETURN $scale * this.imdbRating", {this: movie_similar, scale: 5},'
+                                 ' false)}][..3] } AS movie SKIP 0')
+        self.base_test(graphql_query, expected_cypher_query, params={'year': 2016, 'first': 3, 'scale': 5})
 
 
 if __name__ == '__main__':
