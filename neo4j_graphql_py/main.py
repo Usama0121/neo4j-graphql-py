@@ -142,7 +142,7 @@ def type_identifiers(return_type):
 
 
 def is_graphql_scalar_type(field_type):
-    return type(field_type).__name__ == 'GraphQLScalarType'
+    return type(field_type).__name__ == 'GraphQLScalarType' or type(field_type).__name__ == 'GraphQLEnumType'
 
 
 def is_array_type(field_type):

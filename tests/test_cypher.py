@@ -50,12 +50,21 @@ class Test(unittest.TestCase):
             id: ID!
             name: String
         }
+        enum BookGenre {
+            Mystery,
+            Science,
+            Math
+        }
+        type Book {
+            genre: BookGenre
+        }
         type Query {
             Movie(_id: Int, id: ID, title: String, year: Int, plot: String, poster: String, imdbRating: Float, first: Int, offset: Int): [Movie]
             MoviesByYear(year: Int): [Movie]
             MovieById(movieId: ID!): Movie
             MovieBy_Id(_id: Int): Movie
             GenresBySubstring(substring: String): [Genre] @cypher(statement: "MATCH (g:Genre) WHERE toLower(g.name) CONTAINS toLower($substring) RETURN g")
+            Books: [Book]
         }
         '''
 
@@ -70,6 +79,7 @@ class Test(unittest.TestCase):
                 'MovieById': resolve_any,
                 'MovieBy_Id': resolve_any,
                 'GenresBySubstring': resolve_any,
+                'Books': resolve_any,
             }
         }
 
@@ -517,6 +527,17 @@ class Test(unittest.TestCase):
         expected_cypher_query = ('MATCH (movie:Movie {year: 2016}) RETURN movie {_id: ID(movie), .title , .year ,'
                                  'genres: [(movie)-[:IN_GENRE]->(movie_genres:Genre {}) | '
                                  'movie_genres {_id: ID(movie_genres), .name }] } AS movie SKIP 0')
+        self.base_test(graphql_query, expected_cypher_query, params={'year': 2016, 'first': 3, 'scale': 5})
+
+    def test_enum_as_scalar(self):
+        graphql_query = '''
+        {
+            Books {
+                genre
+            }
+        }
+        '''
+        expected_cypher_query = 'MATCH (book:Book {}) RETURN book { .genre } AS book SKIP 0'
         self.base_test(graphql_query, expected_cypher_query, params={'year': 2016, 'first': 3, 'scale': 5})
 
 
