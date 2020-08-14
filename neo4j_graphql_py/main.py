@@ -12,13 +12,13 @@ ch.setFormatter(formatter)
 logger.addHandler(ch)
 
 
-async def neo4j_graphql(obj, context, resolve_info, debug=False, **kwargs):
+def neo4j_graphql(obj, context, resolve_info, debug=False, **kwargs):
     query = cypher_query(context, resolve_info, **kwargs)
     if debug:
         logger.info(query)
 
     with context.get('driver').session() as session:
-        data = await session.run(query, **kwargs)
+        data = session.run(query, **kwargs)
         data = extract_query_result(data, resolve_info.return_type)
         return data
 
@@ -71,11 +71,11 @@ def build_cypher_selection(initial, selections, variable_name, schema_type, reso
     }
 
     field_name = head_selection.name.value
+    comma_if_tail = ',' if len(tail_selections) > 0 else ''
+    # Schema meta fields(__schema, __typename, etc)
     if not schema_type.fields.get(field_name):
-        # meta field type
         return build_cypher_selection(initial[1:initial.rfind(',')] if len(tail_selections) == 0 else initial,
                                       **tail_params)
-    comma_if_tail = ',' if len(tail_selections) > 0 else ''
 
     field_type = schema_type.fields[field_name].type
 
@@ -83,6 +83,10 @@ def build_cypher_selection(initial, selections, variable_name, schema_type, reso
 
     custom_cypher = cypher_directive(schema_type, field_name).get('statement')
 
+    # Database meta fields(_id)
+    if field_name == '_id':
+        return build_cypher_selection(f'{initial}{field_name}: ID({variable_name}){comma_if_tail}', **tail_params)
+    # Main control flow
     if is_graphql_scalar_type(inner_schema_type):
         if custom_cypher:
             return build_cypher_selection((f'{initial}{field_name}: apoc.cypher.runFirstColumn("{custom_cypher}", '

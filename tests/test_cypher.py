@@ -10,6 +10,7 @@ class Test(unittest.TestCase):
         directive @cypher(statement: String!) on FIELD_DEFINITION
         directive @relation(name:String!, direction:String!) on FIELD_DEFINITION
         type Movie {
+            _id: ID
             movieId: ID!
             title: String
             year: Int
@@ -28,6 +29,7 @@ class Test(unittest.TestCase):
             actorMovies: [Movie] @cypher(statement: "MATCH (this)-[:ACTED_IN*2]-(other:Movie) RETURN other")
         }
         type Genre {
+            _id: ID!
             name: String
             movies(first: Int = 3, offset: Int = 0): [Movie] @relation(name: "IN_GENRE", direction: "IN")
             highestRatedMovie: Movie @cypher(statement: "MATCH (m:Movie)-[:IN_GENRE]->(this) RETURN m ORDER BY m.imdbRating DESC LIMIT 1")
@@ -496,6 +498,25 @@ class Test(unittest.TestCase):
                                  'true) | movie_similar { .title ,scaleRating: apoc.cypher.runFirstColumn("'
                                  'WITH $this AS this RETURN $scale * this.imdbRating", {this: movie_similar, scale: 5},'
                                  ' false)}][..3] } AS movie SKIP 0')
+        self.base_test(graphql_query, expected_cypher_query, params={'year': 2016, 'first': 3, 'scale': 5})
+
+    def test_return_internal_node_id(self):
+        graphql_query = '''
+        {
+            Movie(year: 2016) {
+                _id
+                title
+                year
+                genres {
+                    _id
+                    name
+                }
+            }
+        }
+        '''
+        expected_cypher_query = ('MATCH (movie:Movie {year: 2016}) RETURN movie {_id: ID(movie), .title , .year ,'
+                                 'genres: [(movie)-[:IN_GENRE]->(movie_genres:Genre {}) | '
+                                 'movie_genres {_id: ID(movie_genres), .name }] } AS movie SKIP 0')
         self.base_test(graphql_query, expected_cypher_query, params={'year': 2016, 'first': 3, 'scale': 5})
 
 
