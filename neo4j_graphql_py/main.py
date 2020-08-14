@@ -139,7 +139,8 @@ def build_cypher_selection(initial, selections, variable, schema_type, resolve_i
 
         subquery_args = {}
         if len(head_selection.arguments) > 0:
-            subquery_args = {arg.name.value: arg.value.value for arg in head_selection.arguments}
+            subquery_args = {arg.name.value: arg.value.value for arg in head_selection.arguments if
+                             arg.name.value not in ['first', 'offset']}
         subquery_arg_string = re.sub(r"\"([^(\")]+)\":", "\\1:", json.dumps(subquery_args))
 
         return build_cypher_selection(
