@@ -73,7 +73,7 @@ def cypher_directive_args(variable, head_selection, schema_type, resolve_info):
 
 
 def is_mutation(resolve_info):
-    return resolve_info.operation.operation == 'mutation'
+    return resolve_info.operation.operation == 'mutation' or resolve_info.operation.operation.value == 'mutation'
 
 
 def is_add_relationship_mutation(resolve_info):
@@ -81,6 +81,8 @@ def is_add_relationship_mutation(resolve_info):
             and
             (resolve_info.field_name.startswith('add')
              or resolve_info.field_name.startswith('Add'))
+            and
+            len(mutation_meta_directive(resolve_info.schema.mutaiton_type, resolve_info.field_name)) > 0
             )
 
 
@@ -175,3 +177,29 @@ def extract_selections(selections, fragments):
                    [*acc, *fragments[curr.name.value].selection_set.selections] if curr.kind == 'fragment_spread'
                    else [*acc, curr],
                    [])
+
+
+def fix_params_for_add_relationship_mutation(resolve_info, **kwargs):
+    # FIXME: find a better way to map param name in schema to datamodel
+    #   let mutationMeta, fromTypeArg, toTypeArg;
+    #
+    try:
+        mutation_meta = mutation_meta_directive(resolve_info.mutation_type, resolve_info.field_name)
+    except Exception as e:
+        raise Exception('Missing required MutationMeta directive on add relationship directive')
+    from_type = mutation_meta.get('from')
+    to_type = mutation_meta.get('to')
+
+    # TODO: need to handle one-to-one and one-to-many
+    from_var = low_first_letter(from_type)
+    to_var = low_first_letter(to_type)
+    from_param = resolve_info.schema.mutaiton_type.fields[resolve_info.field_name].ast_node.arguments[0].name.value[
+                 len(from_var):]
+    to_param = resolve_info.schema.mutaiton_type.fields[resolve_info.field_name].ast_node.arguments[1].name.value[
+               len(to_var):]
+    kwargs[from_param] = kwargs[
+        resolve_info.schema.mutaiton_type.fields[resolve_info.field_name].ast_node.arguments[0].name.value]
+    kwargs[to_param] = kwargs[
+        resolve_info.schema.mutaiton_type.fields[resolve_info.field_name].ast_node.arguments[1].name.value]
+    print(kwargs)
+    return kwargs

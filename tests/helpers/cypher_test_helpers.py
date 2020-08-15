@@ -11,7 +11,7 @@ def test_runner(self, graphql_query, expected_cypher_query, params=None):
     type Mutation {
         CreateGenre(name: String): Genre @cypher(statement: "CREATE (g:Genre) SET g.name = $name RETURN g")
         CreateMovie(movieId: ID!, title: String, year: Int, plot: String, poster: String, imdbRating: Float): Movie
-        AddMovieGenre(movieId: ID!, name: String): Movie @MutationMeta(relationship: "IN_GENRE", from:"Movie", to:"Genre")
+        AddMovieGenre(moviemovieId: ID!, genrename: String): Movie @MutationMeta(relationship: "IN_GENRE", from:"Movie", to:"Genre")
     }
     '''
 

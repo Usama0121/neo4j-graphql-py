@@ -1,7 +1,7 @@
-from .utils import inner_type, make_executable_schema
 from .main import neo4j_graphql
 from graphql import print_schema
 from pydash import filter_, reduce_
+from .utils import inner_type, make_executable_schema, low_first_letter
 
 
 def add_mutations_to_schema(schema):
@@ -120,8 +120,8 @@ def add_relationship_mutations(field_type, names_only=False):
 
         # FIXME: could add relationship properties here
         mutations += (f'Add{from_type.name}{to_type.name}'
-                      f'({from_pk.ast_node.name.value}: {inner_type(from_pk.type).name}!, '
-                      f'{to_pk.ast_node.name.value}: {inner_type(to_pk.type).name}!): '
+                      f'({low_first_letter(from_type.name + from_pk.ast_node.name.value)}: {inner_type(from_pk.type).name}!, '
+                      f'{low_first_letter(to_type.name + to_pk.ast_node.name.value)}: {inner_type(to_pk.type).name}!): '
                       f'{from_type.name} @MutationMeta(relationship: "{rel_type.value.value}", from: "{from_type.name}", to: "{to_type.name}")')
         mutation_names.append(f'Add{from_type.name}{to_type.name}')
     if names_only:

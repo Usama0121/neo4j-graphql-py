@@ -7,7 +7,7 @@ class TestSchema(unittest.TestCase):
     def base_test(self, graphql_query, expected_cypher_query, params=None):
         results = test_runner(self, graphql_query, expected_cypher_query, params)
         if results.errors is not None:
-            raise results.errors[0].original_error.original_error
+            raise results.errors[0]
         results = augmented_schema_cypher_test_runner(self, graphql_query, expected_cypher_query, params)
         if results.errors is not None:
             raise results.errors[0]
@@ -423,7 +423,7 @@ class TestSchema(unittest.TestCase):
     def test_add_relation_mutation(self):
         graphql_query = '''
         mutation someMutation {
-            AddMovieGenre(movieId:"123", name: "Action") {
+            AddMovieGenre(moviemovieId:"123", genrename: "Action") {
                 _id
                 title
                 genres {
@@ -442,7 +442,7 @@ class TestSchema(unittest.TestCase):
     def test_add_relation_mutation_with_graphql_variables(self):
         graphql_query = '''
         mutation someMutation($movieParam:ID!) {
-            AddMovieGenre(movieId:$movieParam, name: "Action") {
+            AddMovieGenre(moviemovieId:$movieParam, genrename: "Action") {
                 _id
                 title
                 genres {

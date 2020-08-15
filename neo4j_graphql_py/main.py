@@ -4,7 +4,8 @@ import logging
 from pydash import filter_
 from .selections import build_cypher_selection
 from .utils import (is_mutation, is_add_relationship_mutation, type_identifiers, low_first_letter, cypher_directive,
-                    mutation_meta_directive, extract_query_result, extract_selections)
+                    mutation_meta_directive, extract_query_result, extract_selections,
+                    fix_params_for_add_relationship_mutation)
 
 logger = logging.getLogger('neo4j_graphql_py')
 logger.setLevel(logging.DEBUG)
@@ -17,7 +18,9 @@ logger.addHandler(ch)
 def neo4j_graphql(obj, context, resolve_info, debug=False, **kwargs):
     if is_mutation(resolve_info):
         query = cypher_mutation(context, resolve_info, **kwargs)
-        if not is_add_relationship_mutation(resolve_info):
+        if is_add_relationship_mutation(resolve_info):
+            kwargs = fix_params_for_add_relationship_mutation(resolve_info, **kwargs)
+        else:
             kwargs = {'params': kwargs}
     else:
         query = cypher_query(context, resolve_info, **kwargs)
@@ -110,8 +113,10 @@ def cypher_mutation(context, resolve_info, first=-1, offset=0, _id=None, **kwarg
         from_var = low_first_letter(from_type)
         to_type = mutation_meta.get('to')
         to_var = low_first_letter(to_type)
-        from_param = resolve_info.schema.mutation_type.fields[resolve_info.field_name].ast_node.arguments[0].name.value
-        to_param = resolve_info.schema.mutation_type.fields[resolve_info.field_name].ast_node.arguments[1].name.value
+        from_param = resolve_info.schema.mutation_type.fields[resolve_info.field_name].ast_node.arguments[0].name.value[
+                     len(from_var):]
+        to_param = resolve_info.schema.mutation_type.fields[resolve_info.field_name].ast_node.arguments[1].name.value[
+                   len(to_var):]
         query = (f'MATCH ({from_var}:{from_type} {{{from_param}: ${from_param}}}) '
                  f'MATCH ({to_var}:{to_type} {{{to_param}: ${to_param}}}) '
                  f'CREATE ({from_var})-[:{relation_name}]->({to_var}) '
