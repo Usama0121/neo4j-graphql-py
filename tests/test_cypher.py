@@ -1,6 +1,6 @@
 import unittest
 from graphql import graphql_sync
-from neo4j_graphql_py import cypher_query, make_executable_schema
+from neo4j_graphql_py import cypher_query, make_executable_schema, cypher_mutation
 
 
 class Test(unittest.TestCase):
@@ -9,6 +9,7 @@ class Test(unittest.TestCase):
         test_movie_schema = '''
         directive @cypher(statement: String!) on FIELD_DEFINITION
         directive @relation(name:String!, direction:String!) on FIELD_DEFINITION
+        directive @MutationMeta(relationship: String, from:String, to:String) on FIELD_DEFINITION
         type Movie {
             _id: ID
             movieId: ID!
@@ -66,20 +67,34 @@ class Test(unittest.TestCase):
             GenresBySubstring(substring: String): [Genre] @cypher(statement: "MATCH (g:Genre) WHERE toLower(g.name) CONTAINS toLower($substring) RETURN g")
             Books: [Book]
         }
+        type Mutation {
+            CreateGenre(name: String): Genre @cypher(statement: "CREATE (g:Genre) SET g.name = $name RETURN g")
+            CreateMovie(movieId: ID!, title: String, year: Int, plot: String, poster: String, imdbRating: Float): Movie
+            AddMovieGenre(movieId: ID!, name: String): Movie @MutationMeta(relationship: "IN_GENRE", from:"Movie", to:"Genre")
+        }
         '''
 
-        def resolve_any(_, info, **kwargs):
+        def resolve_query(_, info, **kwargs):
             query = cypher_query(info.context, info, **kwargs)
+            self.assertEqual(first=expected_cypher_query, second=query)
+
+        def resolve_mutation(_, info, **kwargs):
+            query = cypher_mutation(info.context, info, **kwargs)
             self.assertEqual(first=expected_cypher_query, second=query)
 
         resolvers = {
             'Query': {
-                'Movie': resolve_any,
-                'MoviesByYear': resolve_any,
-                'MovieById': resolve_any,
-                'MovieBy_Id': resolve_any,
-                'GenresBySubstring': resolve_any,
-                'Books': resolve_any,
+                'Movie': resolve_query,
+                'MoviesByYear': resolve_query,
+                'MovieById': resolve_query,
+                'MovieBy_Id': resolve_query,
+                'GenresBySubstring': resolve_query,
+                'Books': resolve_query,
+            },
+            'Mutation': {
+                'CreateGenre': resolve_mutation,
+                'CreateMovie': resolve_mutation,
+                'AddMovieGenre': resolve_mutation,
             }
         }
 
@@ -470,6 +485,74 @@ class Test(unittest.TestCase):
                                  'UNWIND x AS genre RETURN genre { .name ,movies: [(genre)<-[:IN_GENRE]-'
                                  '(genre_movies:Movie {}) | genre_movies { .title }][..3] } AS genre SKIP 0')
         self.base_test(graphql_query, expected_cypher_query)
+
+    def test_handle_cypher_directive_on_mutation_type(self):
+        graphql_query = '''
+        mutation someMutation {
+            CreateGenre(name: "Wildlife Documentary") {
+                name
+            }
+        }
+        '''
+        expected_cypher_query = ('CALL apoc.cypher.doIt("CREATE (g:Genre) SET g.name = $name RETURN g", '
+                                 '{name: "Wildlife Documentary"}) YIELD value WITH apoc.map.values(value, '
+                                 '[keys(value)[0]])[0] AS genre RETURN genre { .name } AS genre SKIP 0')
+        self.base_test(graphql_query, expected_cypher_query)
+
+    def test_create_node_mutation_type(self):
+        graphql_query = '''
+        mutation someMutation {
+            CreateMovie(movieId: "12dd334d5", title:"My Super Awesome Movie", year:2018, plot:"An unending saga", poster:"www.movieposter.com/img.png", imdbRating: 1.0) {
+                _id
+                title
+                genres {
+                    name
+                }
+            }
+        }
+        '''
+        expected_cypher_query = ('CREATE (movie:Movie) SET movie = $params RETURN movie {_id: ID(movie), .title ,'
+                                 'genres: [(movie)-[:IN_GENRE]->(movie_genres:Genre {}) | movie_genres { .name }] } '
+                                 'AS movie')
+        self.base_test(graphql_query, expected_cypher_query)
+
+    def test_add_relation_mutation(self):
+        graphql_query = '''
+        mutation someMutation {
+            AddMovieGenre(movieId:"123", name: "Action") {
+                _id
+                title
+                genres {
+                    name
+                }
+            }
+        }
+        '''
+        expected_cypher_query = ('MATCH (movie:Movie {movieId: $movieId}) '
+                                 'MATCH (genre:Genre {name: $name}) '
+                                 'CREATE (movie)-[:IN_GENRE]->(genre) '
+                                 'RETURN movie {_id: ID(movie), .title ,genres: '
+                                 '[(movie)-[:IN_GENRE]->(movie_genres:Genre {}) | movie_genres { .name }] } AS movie')
+        self.base_test(graphql_query, expected_cypher_query)
+
+    def test_add_relation_mutation_with_graphql_variables(self):
+        graphql_query = '''
+        mutation someMutation($movieParam:ID!) {
+            AddMovieGenre(movieId:$movieParam, name: "Action") {
+                _id
+                title
+                genres {
+                    name
+                }
+            }
+        }
+        '''
+        expected_cypher_query = ('MATCH (movie:Movie {movieId: $movieId}) '
+                                 'MATCH (genre:Genre {name: $name}) '
+                                 'CREATE (movie)-[:IN_GENRE]->(genre) '
+                                 'RETURN movie {_id: ID(movie), .title ,genres: '
+                                 '[(movie)-[:IN_GENRE]->(movie_genres:Genre {}) | movie_genres { .name }] } AS movie')
+        self.base_test(graphql_query, expected_cypher_query, params={'movieParam': '123'})
 
     def test_handle_graphql_variables_in_nested_selection_first(self):
         graphql_query = '''

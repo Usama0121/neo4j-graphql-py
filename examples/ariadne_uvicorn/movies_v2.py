@@ -2,7 +2,7 @@ import uvicorn
 from neo4j import GraphDatabase
 from ariadne.asgi import GraphQL
 from neo4j_graphql_py import neo4j_graphql
-from ariadne import QueryType, make_executable_schema
+from ariadne import QueryType, make_executable_schema, MutationType
 
 typeDefs = '''
 directive @cypher(statement: String!) on FIELD_DEFINITION
@@ -71,8 +71,14 @@ type Query {
   GenresBySubstring(substring: String): [Genre] @cypher(statement: "MATCH (g:Genre) WHERE toLower(g.name) CONTAINS toLower($substring) RETURN g")
   Books: [Book]
 }
+type Mutation {
+  CreateGenre(name: String): Genre @cypher(statement: "CREATE (g:Genre) SET g.name = $name RETURN g")
+  CreateMovie(movieId: ID!, title: String, year: Int, plot: String, poster: String, imdbRating: Float): Movie
+  AddMovieGenre(movieId: ID!, name: String): Movie @MutationMeta(relationship: "IN_GENRE", from:"Movie", to:"Genre")
+}
 '''
 query = QueryType()
+mutation = MutationType()
 
 
 @query.field('Movie')
@@ -81,6 +87,9 @@ query = QueryType()
 @query.field('MovieById')
 @query.field('GenresBySubstring')
 @query.field('Books')
+@mutation.field('CreateGenre')
+@mutation.field('CreateMovie')
+@mutation.field('AddMovieGenre')
 def resolve(obj, info, **kwargs):
     return neo4j_graphql(obj, info.context, info, True, **kwargs)
 

@@ -69,3 +69,15 @@ def cypher_directive_args(variable, head_selection, schema_type, resolve_info):
     default_args.update(query_args)
     args = re.sub(r"\"([^(\")]+)\":", "\\1:", json.dumps(default_args))
     return f'{{this: {variable}{args[1:]}' if args == "{}" else f'{{this: {variable}, {args[1:]}'
+
+
+def is_mutation(resolve_info):
+    return resolve_info.operation.operation == 'mutation'
+
+
+def is_add_relationship_mutation(resolve_info):
+    return (is_mutation(resolve_info)
+            and
+            (resolve_info.field_name.startswith('add')
+             or resolve_info.field_name.startswith('Add'))
+            )
