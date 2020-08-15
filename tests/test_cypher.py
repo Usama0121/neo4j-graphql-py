@@ -1,112 +1,16 @@
 import unittest
-from graphql import graphql_sync
-from neo4j_graphql_py import cypher_query, make_executable_schema, cypher_mutation
+from tests.helpers.cypher_test_helpers import test_runner, augmented_schema_cypher_test_runner
 
 
-class Test(unittest.TestCase):
-
-    def _test_runner(self, graphql_query, expected_cypher_query, params=None):
-        test_movie_schema = '''
-        directive @cypher(statement: String!) on FIELD_DEFINITION
-        directive @relation(name:String!, direction:String!) on FIELD_DEFINITION
-        directive @MutationMeta(relationship: String, from:String, to:String) on FIELD_DEFINITION
-        type Movie {
-            _id: ID
-            movieId: ID!
-            title: String
-            year: Int
-            plot: String
-            poster: String
-            imdbRating: Float
-            genres: [Genre] @relation(name: "IN_GENRE", direction: "OUT")
-            similar(first: Int = 3, offset: Int = 0): [Movie] @cypher(statement: "WITH {this} AS this MATCH (this)--(:Genre)--(o:Movie) RETURN o")
-            mostSimilar: Movie @cypher(statement: "WITH {this} AS this RETURN this")
-            degree: Int @cypher(statement: "WITH {this} AS this RETURN SIZE((this)--())")
-            actors(first: Int = 3, offset: Int = 0, name: String): [Actor] @relation(name: "ACTED_IN", direction:"IN")
-            avgStars: Float
-            filmedIn: State @relation(name: "FILMED_IN", direction:"OUT")
-            scaleRating(scale: Int = 3): Float @cypher(statement: "WITH $this AS this RETURN $scale * this.imdbRating")
-            scaleRatingFloat(scale: Float = 1.5): Float @cypher(statement: "WITH $this AS this RETURN $scale * this.imdbRating")
-            actorMovies: [Movie] @cypher(statement: "MATCH (this)-[:ACTED_IN*2]-(other:Movie) RETURN other")
-        }
-        type Genre {
-            _id: ID!
-            name: String
-            movies(first: Int = 3, offset: Int = 0): [Movie] @relation(name: "IN_GENRE", direction: "IN")
-            highestRatedMovie: Movie @cypher(statement: "MATCH (m:Movie)-[:IN_GENRE]->(this) RETURN m ORDER BY m.imdbRating DESC LIMIT 1")
-        }
-        type State {
-            name: String
-        }
-        interface Person {
-            id: ID!
-            name: String
-        }
-        type Actor implements Person {
-            id: ID!
-            name: String
-            movies: [Movie] @relation(name: "ACTED_IN", direction:"OUT")
-        }
-        type User implements Person {
-            id: ID!
-            name: String
-        }
-        enum BookGenre {
-            Mystery,
-            Science,
-            Math
-        }
-        type Book {
-            genre: BookGenre
-        }
-        type Query {
-            Movie(_id: Int, id: ID, title: String, year: Int, plot: String, poster: String, imdbRating: Float, first: Int, offset: Int): [Movie]
-            MoviesByYear(year: Int): [Movie]
-            MovieById(movieId: ID!): Movie
-            MovieBy_Id(_id: Int): Movie
-            GenresBySubstring(substring: String): [Genre] @cypher(statement: "MATCH (g:Genre) WHERE toLower(g.name) CONTAINS toLower($substring) RETURN g")
-            Books: [Book]
-        }
-        type Mutation {
-            CreateGenre(name: String): Genre @cypher(statement: "CREATE (g:Genre) SET g.name = $name RETURN g")
-            CreateMovie(movieId: ID!, title: String, year: Int, plot: String, poster: String, imdbRating: Float): Movie
-            AddMovieGenre(movieId: ID!, name: String): Movie @MutationMeta(relationship: "IN_GENRE", from:"Movie", to:"Genre")
-        }
-        '''
-
-        def resolve_query(_, info, **kwargs):
-            query = cypher_query(info.context, info, **kwargs)
-            self.assertEqual(first=expected_cypher_query, second=query)
-
-        def resolve_mutation(_, info, **kwargs):
-            query = cypher_mutation(info.context, info, **kwargs)
-            self.assertEqual(first=expected_cypher_query, second=query)
-
-        resolvers = {
-            'Query': {
-                'Movie': resolve_query,
-                'MoviesByYear': resolve_query,
-                'MovieById': resolve_query,
-                'MovieBy_Id': resolve_query,
-                'GenresBySubstring': resolve_query,
-                'Books': resolve_query,
-            },
-            'Mutation': {
-                'CreateGenre': resolve_mutation,
-                'CreateMovie': resolve_mutation,
-                'AddMovieGenre': resolve_mutation,
-            }
-        }
-
-        schema = make_executable_schema(test_movie_schema, resolvers)
-
-        # query the test schema with the test query, assertion is in the resolver
-        return graphql_sync(schema, graphql_query, variable_values=params)
+class TestSchema(unittest.TestCase):
 
     def base_test(self, graphql_query, expected_cypher_query, params=None):
-        results = self._test_runner(graphql_query, expected_cypher_query, params)
+        results = test_runner(self, graphql_query, expected_cypher_query, params)
         if results.errors is not None:
             raise results.errors[0].original_error.original_error
+        results = augmented_schema_cypher_test_runner(self, graphql_query, expected_cypher_query, params)
+        if results.errors is not None:
+            raise results.errors[0]
         # self.assertIsNone(results.errors)
 
     def test_simple_cypher_query(self):

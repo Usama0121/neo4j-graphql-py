@@ -42,6 +42,10 @@ def cypher_query(context, resolve_info, first=-1, offset=0, _id=None, **kwargs):
     # FIXME: how to handle multiple field_node matches
     selections = extract_selections(filtered_field_nodes[0].selection_set.selections, resolve_info.fragments)
 
+    # if len(selections) == 0:
+    #     # FIXME: why aren't the selections found in the filteredFieldNode?
+    #     selections = extract_selections(resolve_info.operation.selection_set.selections, resolve_info.fragments)
+
     # FIXME: support IN for multiple values -> WHERE
     arg_string = re.sub(r"\"([^(\")]+)\":", "\\1:", json.dumps(kwargs))
 
@@ -117,3 +121,9 @@ def cypher_mutation(context, resolve_info, first=-1, offset=0, _id=None, **kwarg
     else:
         raise Exception('Mutation does not follow naming conventions')
     return query
+
+
+def augment_schema(schema):
+    from .augment_schema import add_mutations_to_schema
+    mutation_schema = add_mutations_to_schema(schema)
+    return mutation_schema

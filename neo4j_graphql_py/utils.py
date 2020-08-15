@@ -10,7 +10,7 @@ logger = logging.getLogger('neo4j_graphql_py')
 
 def make_executable_schema(schema_definition, resolvers):
     ast = parse(schema_definition)
-    schema = build_ast_schema(ast)
+    schema = build_ast_schema(ast, assume_valid=True)
 
     for type_name in resolvers:
         field_type = schema.get_type(type_name)
