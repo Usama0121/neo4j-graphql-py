@@ -19,7 +19,8 @@ def neo4j_graphql(obj, context, resolve_info, debug=False, **kwargs):
     if is_mutation(resolve_info):
         query = cypher_mutation(context, resolve_info, **kwargs)
         if is_add_relationship_mutation(resolve_info):
-            kwargs = fix_params_for_add_relationship_mutation(resolve_info, **kwargs)
+            # kwargs = fix_params_for_add_relationship_mutation(resolve_info, **kwargs)
+            pass
         else:
             kwargs = {'params': kwargs}
     else:
@@ -117,8 +118,10 @@ def cypher_mutation(context, resolve_info, first=-1, offset=0, _id=None, **kwarg
                      len(from_var):]
         to_param = resolve_info.schema.mutation_type.fields[resolve_info.field_name].ast_node.arguments[1].name.value[
                    len(to_var):]
-        query = (f'MATCH ({from_var}:{from_type} {{{from_param}: ${from_param}}}) '
-                 f'MATCH ({to_var}:{to_type} {{{to_param}: ${to_param}}}) '
+        query = (f'MATCH ({from_var}:{from_type} {{{from_param}: '
+                 f'${resolve_info.schema.mutation_type.fields[resolve_info.field_name].ast_node.arguments[0].name.value}}}) '
+                 f'MATCH ({to_var}:{to_type} {{{to_param}: '
+                 f'${resolve_info.schema.mutation_type.fields[resolve_info.field_name].ast_node.arguments[1].name.value}}}) '
                  f'CREATE ({from_var})-[:{relation_name}]->({to_var}) '
                  f'RETURN {from_var} '
                  f'{{{build_cypher_selection("", selections, variable_name, schema_type, resolve_info)}}} '
