@@ -26,15 +26,14 @@ def build_cypher_selection(initial, selections, variable_name, schema_type, reso
     inner_schema_type = inner_type(field_type)  # for target "field_type" aka label
 
     custom_cypher = cypher_directive(schema_type, field_name).get('statement')
-
     # Database meta fields(_id)
     if field_name == '_id':
         return build_cypher_selection(f'{initial}{field_name}: ID({variable_name}){comma_if_tail}', **tail_params)
     # Main control flow
     if is_graphql_scalar_type(inner_schema_type):
         if custom_cypher:
-            return build_cypher_selection((f'{initial}{field_name}: apoc.cypher.runFirstColumn("{custom_cypher}", '
-                                           f'{cypher_directive_args(variable_name, head_selection, schema_type, resolve_info)}, false)'
+            return build_cypher_selection((f'{initial}{field_name}: apoc.cypher.runFirstColumnMany("{custom_cypher}", '
+                                           f'{cypher_directive_args(variable_name, head_selection, schema_type, resolve_info)})'
                                            f'{comma_if_tail}'), **tail_params)
 
         # graphql scalar type, no custom cypher statement
@@ -51,15 +50,15 @@ def build_cypher_selection(initial, selections, variable_name, schema_type, reso
         'resolve_info': resolve_info
     }
     if custom_cypher:
-        # similar: [ x IN apoc.cypher.runFirstColumn("WITH {this} AS this MATCH (this)--(:Genre)--(o:Movie)
+        # similar: [ x IN apoc.cypher.runFirstColumnSingle("WITH {this} AS this MATCH (this)--(:Genre)--(o:Movie)
         # RETURN o", {this: movie}, true) |x {.title}][1..2])
 
         field_is_list = not not getattr(field_type, 'of_type', None)
 
         return build_cypher_selection(
             (f'{initial}{field_name}: {"" if field_is_list else "head("}'
-             f'[ {nested_variable} IN apoc.cypher.runFirstColumn("{custom_cypher}", '
-             f'{cypher_directive_args(variable_name, head_selection, schema_type, resolve_info)}, true) | {nested_variable} '
+             f'[ {nested_variable} IN apoc.cypher.runFirstColumnMany("{custom_cypher}", '
+             f'{cypher_directive_args(variable_name, head_selection, schema_type, resolve_info)}) | {nested_variable} '
              f'{{{build_cypher_selection(**nested_params)}}}]'
              f'{"" if field_is_list else ")"}{skip_limit} {comma_if_tail}'), **tail_params)
 
