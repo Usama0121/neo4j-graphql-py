@@ -4,8 +4,9 @@ import logging
 from pydash import filter_
 from .selections import build_cypher_selection
 from .utils import (is_mutation, is_add_relationship_mutation, type_identifiers, low_first_letter, cypher_directive,
-                    mutation_meta_directive, extract_query_result, extract_selections,
-                    fix_params_for_add_relationship_mutation)
+                    mutation_meta_directive, extract_query_result, extract_selections)
+ADD_3_5 = False
+debug = True
 
 logger = logging.getLogger('neo4j_graphql_py')
 logger.setLevel(logging.DEBUG)
@@ -15,18 +16,22 @@ ch.setFormatter(formatter)
 logger.addHandler(ch)
 
 
-def neo4j_graphql(obj, context, resolve_info, debug=False, **kwargs):
+async def neo4j_graphql(obj, context, resolve_info, debug=False, **kwargs):
     if is_mutation(resolve_info):
         query = cypher_mutation(context, resolve_info, **kwargs)
-        if is_add_relationship_mutation(resolve_info):
-            kwargs = fix_params_for_add_relationship_mutation(resolve_info, **kwargs)
-        else:
+        query = query.replace('{this}', '$this').replace('{limit}', '$limit')
+        if ADD_3_5:
+            query = 'CYPHER 3.5 ' + query
+        if not is_add_relationship_mutation(resolve_info):
             kwargs = {'params': kwargs}
     else:
         query = cypher_query(context, resolve_info, **kwargs)
+        query = query.replace('{this}', '$this').replace('{limit}', '$limit')
+        if ADD_3_5:
+            query = 'CYPHER 3.5 ' + query  
     if debug:
-        logger.info(query)
-        logger.info(kwargs)
+        logger.info(f'query = {query}')
+        logger.info(f'kwargs = {kwargs}')
 
     with context.get('driver').session() as session:
         data = session.run(query, **kwargs)
@@ -58,17 +63,18 @@ def cypher_query(context, resolve_info, first=-1, offset=0, _id=None, **kwargs):
     cyp_dir = cypher_directive(resolve_info.schema.query_type, resolve_info.field_name)
     if cyp_dir:
         custom_cypher = cyp_dir.get('statement')
-        query = (f'WITH apoc.cypher.runFirstColumn("{custom_cypher}", {arg_string}, true) AS x '
+        query = (f'WITH apoc.cypher.runFirstColumnMany("{custom_cypher}", {arg_string}) AS x '
                  f'UNWIND x AS {variable_name} RETURN {variable_name} '
                  f'{{{build_cypher_selection("", selections, variable_name, schema_type, resolve_info)}}} '
                  f'AS {variable_name} {outer_skip_limit}')
+        query.replace('{this}', '$this').replace('{limit}', '$limit')
     else:
         # No @cypher directive on QueryType
         query = f'MATCH ({variable_name}:{type_name} {arg_string}) {id_where_predicate}'
         query += (f'RETURN {variable_name} '
                   f'{{{build_cypher_selection("", selections, variable_name, schema_type, resolve_info)}}}'
                   f' AS {variable_name} {outer_skip_limit}')
-
+        query.replace('{this}', '$this').replace('{limit}', '$limit')
     return query
 
 
@@ -97,6 +103,7 @@ def cypher_mutation(context, resolve_info, first=-1, offset=0, _id=None, **kwarg
                  f'WITH apoc.map.values(value, [keys(value)[0]])[0] AS {variable_name} '
                  f'RETURN {variable_name} {{{build_cypher_selection("", selections, variable_name, schema_type, resolve_info)}}} '
                  f'AS {variable_name} {outer_skip_limit}')
+        query.replace('{this}', '$this').replace('{limit}', '$limit')
     # No @cypher directive on MutationType
     elif resolve_info.field_name.startswith('create') or resolve_info.field_name.startswith('Create'):
         # Create node
@@ -106,6 +113,7 @@ def cypher_mutation(context, resolve_info, first=-1, offset=0, _id=None, **kwarg
         query = (f'CREATE ({variable_name}:{type_name}) SET {variable_name} = $params RETURN {variable_name} '
                  f'{{{build_cypher_selection("", selections, variable_name, schema_type, resolve_info)}}} '
                  f'AS {variable_name}')
+        query.replace('{this}', '$this').replace('{limit}', '$limit')
     elif resolve_info.field_name.startswith('add') or resolve_info.field_name.startswith('Add'):
         mutation_meta = mutation_meta_directive(resolve_info.schema.mutation_type, resolve_info.field_name)
         relation_name = mutation_meta.get('relationship')
@@ -113,16 +121,15 @@ def cypher_mutation(context, resolve_info, first=-1, offset=0, _id=None, **kwarg
         from_var = low_first_letter(from_type)
         to_type = mutation_meta.get('to')
         to_var = low_first_letter(to_type)
-        from_param = resolve_info.schema.mutation_type.fields[resolve_info.field_name].ast_node.arguments[0].name.value[
-                     len(from_var):]
-        to_param = resolve_info.schema.mutation_type.fields[resolve_info.field_name].ast_node.arguments[1].name.value[
-                   len(to_var):]
+        from_param = resolve_info.schema.mutation_type.fields[resolve_info.field_name].ast_node.arguments[0].name.value
+        to_param = resolve_info.schema.mutation_type.fields[resolve_info.field_name].ast_node.arguments[1].name.value
         query = (f'MATCH ({from_var}:{from_type} {{{from_param}: ${from_param}}}) '
                  f'MATCH ({to_var}:{to_type} {{{to_param}: ${to_param}}}) '
                  f'CREATE ({from_var})-[:{relation_name}]->({to_var}) '
                  f'RETURN {from_var} '
                  f'{{{build_cypher_selection("", selections, variable_name, schema_type, resolve_info)}}} '
                  f'AS {from_var}')
+        query.replace('{this}', '$this').replace('{limit}', '$limit')
     else:
         raise Exception('Mutation does not follow naming conventions')
     return query
