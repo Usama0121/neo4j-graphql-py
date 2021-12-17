@@ -73,13 +73,13 @@ def cypher_directive_args(variable, head_selection, schema_type, resolve_info):
 
 
 def is_mutation(resolve_info):
-    return resolve_info.operation.operation == 'mutation'
+    return resolve_info.operation.operation.value == 'mutation'
 
 
 def is_add_relationship_mutation(resolve_info):
     return (is_mutation(resolve_info)
             and
-            (resolve_info.field_name.starts('add')
+            (resolve_info.field_name.startswith('add')
              or resolve_info.field_name.startswith('Add'))
             )
 

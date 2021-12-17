@@ -73,10 +73,11 @@ type Mutation {
 }
 '''
                )
+
 query = QueryType()
 mutation = MutationType()
 
-
+# @mutation.field('AddMovieGenre')
 @query.field('Actors')
 @query.field('Movie')
 @query.field('MoviesByYear')
@@ -86,13 +87,12 @@ mutation = MutationType()
 @query.field('Books')
 @mutation.field('CreateGenre')
 @mutation.field('CreateMovie')
-@mutation.field('AddMovieGenre')
 @mutation.field('CreateBook')
 async def resolve(obj, info, **kwargs):
     return await neo4j_graphql(obj, info.context, info, True, **kwargs)
 
 
-schema = make_executable_schema(typeDefs, query)
+schema = make_executable_schema(typeDefs, query, mutation)
 
 driver = None
 
@@ -100,7 +100,7 @@ driver = None
 def context(request):
     global driver
     if driver is None:
-        driver = GraphDatabase.driver("bolt://localhost:7687", auth=("neo4j", "<Your Password>"))
+        driver = GraphDatabase.driver("bolt://localhost:7687", auth=("neo4j", "Whoami!9070"))
 
     return {'driver': driver, 'request': request}
 
