@@ -100,7 +100,7 @@ driver = None
 def context(request):
     global driver
     if driver is None:
-        driver = GraphDatabase.driver("bolt://localhost:7687", auth=("neo4j", "Whoami!9070"))
+        driver = GraphDatabase.driver("bolt://localhost:7687", auth=("neo4j", "123456"))
 
     return {'driver': driver, 'request': request}
 
