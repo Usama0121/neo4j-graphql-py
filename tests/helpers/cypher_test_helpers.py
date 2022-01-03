@@ -6,7 +6,7 @@ from .schema import test_schema
 from neo4j_graphql_py import make_executable_schema, augment_schema, cypher_query, cypher_mutation
 
 
-def test_runner(self, graphql_query, expected_cypher_query, params=None):
+def run_test(self, graphql_query, expected_cypher_query, params=None):
     test_movie_schema = test_schema + '''
     type Mutation {
         CreateGenre(name: String): Genre @cypher(statement: "CREATE (g:Genre) SET g.name = $name RETURN g")

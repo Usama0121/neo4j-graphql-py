@@ -1,11 +1,11 @@
 import unittest
-from tests.helpers.cypher_test_helpers import test_runner, augmented_schema_cypher_test_runner
+from tests.helpers.cypher_test_helpers import run_test, augmented_schema_cypher_test_runner
 
 
 class TestSchema(unittest.TestCase):
 
     def cypher_test(self, graphql_query, expected_cypher_query, params=None):
-        results = test_runner(self, graphql_query, expected_cypher_query, params)
+        results = run_test(self, graphql_query, expected_cypher_query, params)
         if results.errors is not None:
             raise results.errors[0]
 
